@@ -12,7 +12,7 @@ const connectionOptions = { initializeBattle: false, requireRoleInfo: true };
 
 /** Read-only preview uses the first selected account and releases only its own slot. */
 export function createExtendedGoodsLoader(deps) {
-  return async (kind) => {
+  return async (kind, { refresh = false } = {}) => {
     if (deps.isRunning.value) throw new Error("请等待当前任务完成");
     const tokenId = deps.selectedTokens.value[0];
     if (!tokenId) throw new Error("请先勾选一个角色读取游戏数据");
@@ -41,8 +41,8 @@ export function createExtendedGoodsLoader(deps) {
           );
         };
         return typeof kind === "object"
-          ? loadExtendedChoices(send, kind.task)
-          : loadActivityGoods(send, kind);
+          ? loadExtendedChoices(send, kind.task, { refresh })
+          : loadActivityGoods(send, kind, { refresh });
       });
     } finally {
       if (ownsSlot) {

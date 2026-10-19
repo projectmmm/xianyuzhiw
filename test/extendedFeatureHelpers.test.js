@@ -23,16 +23,60 @@ test("battle presets use only the requested slot from the current server respons
   assert.throws(() => getBattlePreset(response, 6), /阵容为空/);
 });
 
-test("film activity IDs derive from the returned active activity family", () => {
+test("photo activity uses explicit config and live state, never the largest unrelated ID", () => {
+  const now = Date.parse("2026-10-19T00:00:00Z");
+  const config = {
+    ActFestivalConf: {
+      2610168: {
+        id: 2610168,
+        actType: 36,
+        actGroup: 2,
+        itemId: 5290,
+        start: now / 1000 - 100,
+        end: now / 1000 + 100,
+      },
+      2610169: {
+        id: 2610169,
+        actType: 37,
+        actGroup: 2,
+        itemId: 5290,
+        start: now / 1000 - 100,
+        end: now / 1000 + 100,
+      },
+    },
+    PhotoConf: { 261016101: { id: 261016101, actId: 2610168 } },
+    PhotoPieceConf: { 11: { id: 11, actId: 2610168, progressNeed: 10 } },
+    BattlePassMissionConf: {
+      261016901: { id: 261016901, actId: 2610169, rank: 1 },
+    },
+  };
+  const response = {
+    body: {
+      activity: {
+        photoActivityInfo: { 2610168: { pieceId: 11, num: 2 } },
+        commonActivityInfo: { 26101611: {}, 999999999: {} },
+      },
+    },
+  };
+  const result = deriveFilmActivityIds(response, config, now);
+  assert.equal(result.photoActId, 2610168);
+  assert.equal(result.taskActId, 2610169);
+  assert.equal(result.itemId, 5290);
   assert.deepEqual(
-    deriveFilmActivityIds({
-      activity: { commonActivityInfo: { 2609106: {}, 2609105: {} } },
-    }),
-    { shopId: 2609106, taskActId: 2609104, photoActId: 2609103 },
+    result.missions.map((row) => row.id),
+    [261016901],
+  );
+  assert.deepEqual(
+    result.pieces.map((row) => row.id),
+    [11],
   );
   assert.throws(
-    () => deriveFilmActivityIds({ activity: {} }),
-    /活动信息不完整/,
+    () => deriveFilmActivityIds(response, config, now + 200000),
+    /唯一确认/,
+  );
+  assert.throws(
+    () => deriveFilmActivityIds({ activity: {} }, config, now),
+    /咸来入镜活动状态/,
   );
 });
 

@@ -200,3 +200,115 @@ test("catalog reads only official public JSON and never caches per-account purch
     /官方商品配置版本/,
   );
 });
+
+test("photo exchanges use exact skin names and distinguish both flower currencies", () => {
+  const conf = structuredClone(config);
+  conf.SkinConf = {
+    11103: { skinName: "霸王·孙策" },
+    11203: { skinName: "药师·贾诩" },
+  };
+  conf.OtherItemConf = { 11: { resourceType: 11, name: "皮肤" } };
+  conf.ActFestivalConf = {
+    26101610: {
+      id: 26101610,
+      name: "咸来入镜",
+      start: now / 1000 - 100,
+      end: now / 1000 + 100,
+      itemId: 5291,
+    },
+    26101611: {
+      id: 26101611,
+      name: "咸来入镜",
+      start: now / 1000 - 100,
+      end: now / 1000 + 100,
+      itemId: 5293,
+    },
+  };
+  conf.ExchangeActConf = {
+    261016101: {
+      id: 261016101,
+      actId: 26101610,
+      resourceType: 11,
+      rewardId: 11103,
+      rewardNum: 1,
+      consumeNum: 7,
+      limitNum: 1,
+      unlockNeed: 0,
+    },
+    261016102: {
+      id: 261016102,
+      actId: 26101610,
+      resourceType: 11,
+      rewardId: 11203,
+      rewardNum: 1,
+      consumeNum: 7,
+      limitNum: 1,
+      unlockNeed: 0,
+    },
+    261016211: {
+      id: 261016211,
+      actId: 26101611,
+      resourceType: 3,
+      rewardId: 8,
+      rewardNum: 1,
+      consumeNum: 5,
+      limitNum: 5,
+      unlockNeed: 0,
+    },
+  };
+  const lang = structuredClone(language);
+  lang.ItemConf[5291] = { name: "勿忘我" };
+  lang.ItemConf[5293] = { name: "满天星" };
+  const state = {
+    commonActivityInfo: {
+      26101610: { record: {} },
+      26101611: { record: { 261016211: 2 } },
+    },
+  };
+  const list = buildActivityGoods(
+    conf,
+    lang,
+    state,
+    { items: { 5291: { quantity: 7 }, 5293: { quantity: 10 } } },
+    "exchange",
+    now,
+  );
+  assert.equal(list[0].name, "霸王·孙策 ×1");
+  assert.equal(list[1].name, "药师·贾诩 ×1");
+  assert.match(list[0].label, /咸来入镜.*勿忘我兑换.*勿忘我 ×7/);
+  assert.match(list[2].label, /咸来入镜.*满天星兑换/);
+  assert.equal(list[2].remaining, 3);
+  assert.ok(list.every((entry) => !entry.label.includes("皮肤 ×")));
+});
+
+test("explicit refresh bypasses both process and HTTP caches for unchanged version IDs", async () => {
+  let downloads = 0;
+  const send = async (command) =>
+    command === "system_getdatabundlever"
+      ? { dataBundleVer: "refresh-same-version" }
+      : command === "role_getroleinfo"
+        ? { role }
+        : activity;
+  const fetchImpl = async (url, options) => {
+    downloads++;
+    assert.equal(options.cache, "no-store");
+    return {
+      ok: true,
+      json: async () =>
+        url.endsWith("language.json")
+          ? language
+          : url.endsWith("config.json")
+            ? config
+            : {},
+    };
+  };
+  await loadActivityGoods(send, "shop", { fetchImpl, now: () => now });
+  await loadActivityGoods(send, "shop", { fetchImpl, now: () => now });
+  assert.equal(downloads, 3);
+  await loadActivityGoods(send, "shop", {
+    fetchImpl,
+    now: () => now,
+    refresh: true,
+  });
+  assert.equal(downloads, 6);
+});

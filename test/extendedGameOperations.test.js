@@ -405,3 +405,146 @@ test("shop parameters fail once before connecting and read-only previews release
   assert.equal(closes, 1);
   assert.equal(releases, 1);
 });
+
+const photoNow = Date.parse("2026-10-19T00:00:00Z");
+const photoConfig = {
+  ActFestivalConf: {
+    80: {
+      id: 80,
+      actType: 36,
+      actGroup: 2,
+      itemId: 5290,
+      start: photoNow / 1000 - 10,
+      end: photoNow / 1000 + 10,
+    },
+    90: {
+      id: 90,
+      actType: 37,
+      actGroup: 2,
+      itemId: 5290,
+      start: photoNow / 1000 - 10,
+      end: photoNow / 1000 + 10,
+    },
+  },
+  PhotoConf: { 101: { id: 101, actId: 80, rank: 1 } },
+  PhotoPieceConf: {
+    11: { id: 11, actId: 80, PhotoId: 101, pieceIndex: 1, progressNeed: 10 },
+  },
+  BattlePassMissionConf: {
+    901: {
+      id: 901,
+      actId: 90,
+      rank: 1,
+      completeValue: 1,
+      description: "登录{0}次游戏",
+    },
+    902: {
+      id: 902,
+      actId: 90,
+      rank: 2,
+      completeValue: 5,
+      description: "任务{0}",
+    },
+    903: {
+      id: 903,
+      actId: 90,
+      rank: 3,
+      completeValue: 1,
+      description: "任务{0}",
+    },
+  },
+};
+function photoContext(state, writes, confirm = true) {
+  return {
+    now: () => photoNow,
+    loadConfig: async () => ({ config: photoConfig, language: {} }),
+    async send(command, body) {
+      if (command === "activity_get")
+        return {
+          body: {
+            activity: {
+              photoActivityInfo: { 80: clone(state) },
+              warOrderActivityInfo: {
+                90: {
+                  complete: { 901: 1, 902: 2, 903: 1 },
+                  taskClaimed: { 903: true },
+                },
+              },
+            },
+          },
+        };
+      if (command === "role_getroleinfo")
+        return { role: { items: { 5290: { quantity: 3 } } } };
+      writes.push({ command, body });
+      if (command === "activity_photo" && confirm) {
+        state.pieceId = body.pieceId;
+        state.num += body.num;
+      }
+      return {};
+    },
+  };
+}
+
+test("photo initial state resolves first configured piece and caps film to inventory and remaining progress", async () => {
+  const writes = [];
+  await runExtendedGameOperation(
+    "extendedFilmPhoto",
+    { number: 10 },
+    photoContext({ pieceId: 0, num: 8 }, writes),
+  );
+  assert.deepEqual(writes, [
+    {
+      command: "activity_photo",
+      body: { activityId: 80, num: 2, pieceId: 11 },
+    },
+  ]);
+});
+
+test("photo claims only completed stages and finished activities send no writes", async () => {
+  for (const [state, expected] of [
+    [{ pieceId: 0, num: 10 }, 1],
+    [{ pieceId: 11, num: 9 }, 0],
+    [{ pieceId: -1, num: 0 }, 0],
+  ]) {
+    const writes = [];
+    await runExtendedGameOperation(
+      "filmClaim",
+      {},
+      photoContext(state, writes),
+    );
+    assert.equal(writes.length, expected);
+    if (expected)
+      assert.deepEqual(writes[0], {
+        command: "activity_claimphotoreward",
+        body: { activityId: 80, pieceId: 11 },
+      });
+  }
+});
+
+test("film tasks claim only complete unclaimed missions from the official configuration", async () => {
+  const writes = [];
+  await runExtendedGameOperation(
+    "extendedFilmTasks",
+    {},
+    photoContext({ pieceId: 0, num: 0 }, writes),
+  );
+  assert.deepEqual(writes, [
+    {
+      command: "activity_warordertaskclaim",
+      body: { actId: 90, missionId: 901 },
+    },
+  ]);
+});
+
+test("photo writes stop on unconfirmed progress and never replay consumption", async () => {
+  const writes = [];
+  await assert.rejects(
+    runExtendedGameOperation(
+      "extendedFilmPhoto",
+      { number: 10 },
+      photoContext({ pieceId: 0, num: 0 }, writes, false),
+    ),
+    /未确认/,
+  );
+  assert.equal(writes.length, 1);
+});

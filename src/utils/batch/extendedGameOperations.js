@@ -1,3 +1,5 @@
+import { loadOfficialGameConfig } from "../gameActivityGoods.js";
+import { gameNames } from "../gameDataNames.js";
 import {
   loadExtendedChoices,
   resolveGameSelections,
@@ -5,6 +7,7 @@ import {
 import {
   deriveFilmActivityIds,
   getBattlePreset,
+  getFilmPiece,
 } from "./extendedFeatureHelpers.js";
 import {
   getExtendedTask,
@@ -164,58 +167,90 @@ export async function runExtendedGameOperation(value, settings, context) {
     return;
   }
   if (["extendedFilmTasks", "filmClaim", "extendedFilmPhoto"].includes(value)) {
+    const { config, language } = await (context.loadConfig
+      ? context.loadConfig()
+      : loadOfficialGameConfig(send));
     const response = await send("activity_get", {});
-    const ids = deriveFilmActivityIds(response);
+    const activity =
+      (response?.body ?? response)?.activity ?? response?.body ?? response;
+    const ids = deriveFilmActivityIds(response, config, now());
+    const names = gameNames(config, language);
+    log(
+      `已读取咸来入镜：${ids.missions.length} 项任务、${ids.pieces.length} 个拍摄阶段`,
+    );
     if (value === "extendedFilmTasks") {
-      for (let seq = 1; seq <= 14; seq++) {
+      if (!ids.taskActId || !ids.missions.length)
+        throw new Error("未读取到咸来入镜任务配置，请刷新游戏数据");
+      const taskState = activity?.warOrderActivityInfo?.[ids.taskActId];
+      if (!taskState?.complete || !taskState?.taskClaimed)
+        throw new Error("未读取到胶卷任务进度，请刷新游戏数据");
+      for (const mission of ids.missions) {
+        check();
+        if (
+          taskState.taskClaimed[mission.id] ||
+          Number(taskState.complete[mission.id] ?? 0) <
+            Number(mission.completeValue)
+        )
+          continue;
+        const label = names
+          .text(mission.description)
+          .replace(/\{0\}/g, String(mission.completeValue));
         try {
           await send("activity_warordertaskclaim", {
             actId: ids.taskActId,
-            missionId: ids.taskActId * 100 + seq,
+            missionId: Number(mission.id),
           });
         } catch (error) {
           check();
           if (!/\b(?:1100010|200020|400000)\b/.test(error.message)) throw error;
-          log(`胶卷任务 ${seq} 未达条件或已领取`);
+          log(`${label || "胶卷任务"}未达条件或已领取`);
         }
       }
       return;
     }
-    let state = response.activity?.photoActivityInfo?.[ids.photoActId];
-    if (
-      !state ||
-      !Number.isSafeInteger(Number(state.pieceId)) ||
-      Number(state.pieceId) < 1
-    )
-      throw new Error("相片槽位状态不完整");
+    let state = activity?.photoActivityInfo?.[ids.photoActId];
+    let piece = getFilmPiece(state, ids.pieces);
+    if (!piece) {
+      log("咸来入镜已全部完成");
+      return;
+    }
     if (value === "filmClaim") {
+      if (Number(state.num) < Number(piece.progressNeed)) {
+        log("当前相片进度未满，暂无可领取奖励");
+        return;
+      }
       await send("activity_claimphotoreward", {
         activityId: ids.photoActId,
-        pieceId: Number(state.pieceId),
+        pieceId: Number(piece.id),
       });
       return;
     }
     let remaining = options.number;
     while (remaining > 0) {
       const role = await roleInfo();
+      piece = getFilmPiece(state, ids.pieces);
+      if (!piece) return;
+      const progressNeed = Number(piece.progressNeed);
       const num = Math.min(
         remaining,
-        quantity(role, 5290),
-        10 - Number(state.num || 0),
+        quantity(role, ids.itemId),
+        progressNeed - Number(state.num || 0),
       );
       if (num <= 0) return;
-      const oldPiece = Number(state.pieceId);
+      const oldPiece = Number(piece.id);
       await send("activity_photo", {
         activityId: ids.photoActId,
         num,
         pieceId: oldPiece,
       });
       const after = await send("activity_get", {});
-      const next = after.activity?.photoActivityInfo?.[ids.photoActId];
+      const next = ((after?.body ?? after)?.activity ?? after?.body ?? after)
+        ?.photoActivityInfo?.[ids.photoActId];
+      const nextPiece = getFilmPiece(next, ids.pieces);
       if (
-        !next ||
-        (Number(next.pieceId) === oldPiece &&
-          Number(next.num || 0) <= Number(state.num || 0))
+        !nextPiece ||
+        Number(nextPiece.id) !== oldPiece ||
+        Number(next.num) < Number(state.num) + num
       )
         throw new Error("未确认胶卷放入进度，已停止");
       remaining -= num;

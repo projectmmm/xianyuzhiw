@@ -61,7 +61,7 @@
         <n-button
           :loading="loadingGoods"
           :disabled="busy || !selectedCount || loadingGoods"
-          @click="refreshGoods"
+          @click="refreshGoods(true)"
           >读取 / 刷新游戏数据</n-button
         >
         <n-text depth="3"
@@ -201,7 +201,7 @@ const validationError = computed(() => {
     return error.message;
   }
 });
-async function refreshGoods() {
+async function refreshGoods(forceRefresh = true) {
   if (
     !dynamicFields.value.length ||
     !props.loadGoods ||
@@ -218,7 +218,9 @@ async function refreshGoods() {
   goodsLoaded.value = false;
   choices.value = {};
   try {
-    const result = await props.loadGoods(source ?? { task });
+    const result = await props.loadGoods(source ?? { task }, {
+      refresh: forceRefresh,
+    });
     if (request !== goodsRequest) return;
     choices.value = source
       ? { goodsId: result.map((item) => ({ ...item, value: item.goodsId })) }
@@ -269,7 +271,7 @@ watch(
     dataNotice.value = "";
     loadingGoods.value = false;
     if (dynamicFields.value.length && props.selectedCount && !props.busy)
-      void refreshGoods();
+      void refreshGoods(false);
   },
   { immediate: true },
 );

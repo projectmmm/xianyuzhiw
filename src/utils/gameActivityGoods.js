@@ -1,20 +1,11 @@
+import { gameNames } from "./gameDataNames.js";
+export { makeTranslations } from "./gameDataNames.js";
 const cachedConfigs = new Map();
 const CDN = "https://xxz-xyzw-res.hortorgames.com";
 
 const bodyOf = (response) => response?.body ?? response;
 const activityOf = (response) => bodyOf(response)?.activity ?? bodyOf(response);
 const countOf = (value) => (value === true ? 1 : Number(value ?? 0));
-
-export function makeTranslations(language) {
-  const result = new Map();
-  for (const group of Object.values(language.LanguageConf ?? {})) {
-    for (const row of Object.values(group ?? {})) {
-      if (typeof row?.key === "string" && typeof row.chinese === "string")
-        result.set(row.key, row.chinese);
-    }
-  }
-  return result;
-}
 
 /** Join official merchandise, names and the selected role's current activity state. */
 export function buildActivityGoods(
@@ -29,27 +20,10 @@ export function buildActivityGoods(
   if (!["shop", "exchange"].includes(kind)) throw new Error("未知商品来源");
   if (!common || typeof common !== "object")
     throw new Error("未读取到当前角色的活动信息");
-  const translations = makeTranslations(language);
-  const translate = (key) => {
-    const value = translations.get(key) ?? key;
-    return typeof value === "string" && !/^[A-Za-z]+Conf_/.test(value)
-      ? value
-          .replace(/<[^>]*>/g, "")
-          .replace(/\s+/g, " ")
-          .trim()
-      : "";
-  };
-  const itemName = (id) => translate(language.ItemConf?.[id]?.name);
-  const resources = new Map(
-    Object.values(config.OtherItemConf ?? {}).map((row) => [
-      Number(row.resourceType),
-      translate(row.name),
-    ]),
-  );
-  const rewardName = (reward) =>
-    Number(reward.type) === 3
-      ? itemName(reward.itemId)
-      : resources.get(Number(reward.type));
+  const names = gameNames(config, language);
+  const translate = names.text;
+  const itemName = names.item;
+  const rewardName = names.reward;
   const rows =
     kind === "exchange" ? config.ExchangeActConf : config.ActMerchandiseConf;
   if (!rows || typeof rows !== "object")
@@ -136,8 +110,12 @@ export function buildActivityGoods(
       : price === 0
         ? "免费"
         : `${currency} ×${price}`;
+    const title =
+      translate(schedule.name) || translate(schedule.bannerTitle) || "当前活动";
     const activityName =
-      translate(schedule.name) || schedule.bannerTitle || "当前活动";
+      kind === "exchange" && itemName(costItemId)
+        ? `${title} · ${itemName(costItemId)}兑换`
+        : title;
     const limitText = remaining == null ? "不限购" : `剩余 ${remaining} 次`;
     results.push({
       goodsId,
@@ -163,18 +141,22 @@ export function buildActivityGoods(
 }
 
 /** Public official configuration only; account data is never cached here. */
-export async function loadOfficialGameConfig(send, { fetchImpl = fetch } = {}) {
+export async function loadOfficialGameConfig(
+  send,
+  { fetchImpl = fetch, refresh = false } = {},
+) {
   const versionResponse = bodyOf(await send("system_getdatabundlever", {}));
   const version = versionResponse?.dataBundleVer;
   if (typeof version !== "string" || !/^[\w-]{1,80}$/.test(version))
     throw new Error("未读取到官方商品配置版本");
-  if (!cachedConfigs.has(version)) {
+  if (refresh || !cachedConfigs.has(version)) {
     const loading = (async () => {
       const [config, language, extra] = await Promise.all(
         ["config", "language", "config_ap"].map(async (file) => {
           const response = await fetchImpl(
             `${CDN}/data/${version}/${file}.json`,
             {
+              cache: "no-store",
               credentials: "omit",
               redirect: "error",
               referrerPolicy: "no-referrer",
@@ -188,7 +170,9 @@ export async function loadOfficialGameConfig(send, { fetchImpl = fetch } = {}) {
       return { config: { ...extra, ...config }, language };
     })();
     cachedConfigs.set(version, loading);
-    loading.catch(() => cachedConfigs.delete(version));
+    loading.catch(() => {
+      if (cachedConfigs.get(version) === loading) cachedConfigs.delete(version);
+    });
   }
   return cachedConfigs.get(version);
 }
@@ -196,10 +180,11 @@ export async function loadOfficialGameConfig(send, { fetchImpl = fetch } = {}) {
 export async function loadActivityGoods(
   send,
   kind = "shop",
-  { fetchImpl = fetch, now = Date.now } = {},
+  { fetchImpl = fetch, now = Date.now, refresh = false } = {},
 ) {
   const { config, language } = await loadOfficialGameConfig(send, {
     fetchImpl,
+    refresh,
   });
   // Never cache account-specific activity records, stock or balances.
   const activity = await send("activity_get", {});

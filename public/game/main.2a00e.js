@@ -346,25 +346,42 @@ window.loadJscAndDecode = async function (url, callback) {
 }
 
 window.parseRemoteBundleVers = function (settingsObj) {
+  if (settingsObj?.code || settingsObj?.error) {
+    throw new Error('official manifest rejected')
+  }
   let body = settingsObj.body
   if (typeof body === 'string') {
     body = JSON.parse(body)
   }
 
+  if (body?.isLast === false) {
+    throw new Error('official H5 client update required')
+  }
   let bundleVers = body && body.bundleVers
   if (typeof bundleVers === 'string') {
     bundleVers = JSON.parse(bundleVers)
   }
 
-  if (!bundleVers || typeof bundleVers !== 'object') {
+  if (!bundleVers || typeof bundleVers !== 'object' || Array.isArray(bundleVers) ||
+      !/^[a-f0-9]+$/i.test(bundleVers.game || '') ||
+      !/^[a-f0-9]+$/i.test(bundleVers.launcher || '') ||
+      !/^v?\d+\.\d+\.\d+$/i.test(bundleVers.codeVersion || '')) {
     throw new Error('invalid remote bundleVers')
   }
 
   return bundleVers
 }
 
+window.applyRemoteGameVersion = function () {
+  const manifest = window.__officialGameManifest
+  if (!manifest) return
+  window.CODE_VERSION = manifest.codeVersion.replace(/^v/i, '')
+  window.GAME_VERSION = window.CODE_VERSION + '-wx'
+  window.COMMIT_ID = manifest.COMMIT_ID || ''
+}
+
 window.loadRemoteBundleVers = async function () {
-  const manifestUrl = `https://xxz-xyzw.hortorgames.com/login/manifest?platform=hortor&version=0.32.0-android`
+  const manifestUrl = `https://xxz-xyzw.hortorgames.com/login/manifest?platform=hortor&version=0.1.0-androidh5`
   console.log('[remoteAssets] POST manifest', manifestUrl)
 
   const settingsRes = await fetch(
@@ -375,8 +392,12 @@ window.loadRemoteBundleVers = async function () {
         Accept: 'application/json,text/plain,*/*',
         'Content-Type': 'application/json;charset=UTF-8'
       },
-      body: '',
-      cache: 'no-store'
+      body: '{}',
+      cache: 'no-store',
+      credentials: 'omit',
+      redirect: 'error',
+      referrerPolicy: 'no-referrer',
+      signal: AbortSignal.timeout(30000)
     }
   )
   if (!settingsRes.ok) {
@@ -394,7 +415,11 @@ window.loadRemoteBundleVers = async function () {
 
   const bundleVers = window.parseRemoteBundleVers(settingsObj)
   Object.assign(window._CCSettings.bundleVers, bundleVers)
+  window.__officialGameManifest = Object.freeze({ ...bundleVers })
+  window.applyRemoteGameVersion()
+  window._CCSettings.codeVersion = window.CODE_VERSION
   console.log('[remoteAssets] 远程版本已拉取', {
+    codeVersion: window.CODE_VERSION,
     launcher: bundleVers.launcher,
     game: bundleVers.game,
     COMMIT_ID: bundleVers.COMMIT_ID
@@ -478,6 +503,8 @@ window.installRemoteAssetLoader = function () {
         .loadJscAndDecode(finalUrl, function (code) {
           try {
             executeScript(code, finalUrl)
+            // Official launcher version-ext may write a v-prefixed version.
+            window.applyRemoteGameVersion()
             loadedScripts[finalUrl] = true
             onComplete && onComplete(null)
           } catch (err) {
