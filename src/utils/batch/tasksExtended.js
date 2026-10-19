@@ -1,10 +1,58 @@
 import { runWithDailyTaskLock } from "../dailyTaskState.js";
+import { loadActivityGoods } from "../gameActivityGoods.js";
 import { runExtendedGameOperation } from "./extendedGameOperations.js";
 import {
   extendedTaskCatalog,
   normalizeExtendedTaskSettings,
 } from "./extendedTaskCatalog.js";
 import { runNightmareGroupTask } from "./nightmareGroupTask.js";
+
+const connectionOptions = { initializeBattle: false, requireRoleInfo: true };
+
+/** Read-only preview uses the first selected account and releases only its own slot. */
+export function createExtendedGoodsLoader(deps) {
+  return async (kind) => {
+    if (deps.isRunning.value) throw new Error("请等待当前任务完成");
+    const tokenId = deps.selectedTokens.value[0];
+    if (!tokenId) throw new Error("请先勾选一个角色读取商品");
+    deps.isRunning.value = true;
+    deps.shouldStop.value = false;
+    let ownsSlot = false;
+    try {
+      return await runWithDailyTaskLock(tokenId, async () => {
+        await deps.ensureConnection(
+          tokenId,
+          2,
+          (owned) => {
+            ownsSlot = owned;
+          },
+          connectionOptions,
+        );
+        const send = (command, body) => {
+          if (deps.shouldStop.value) throw new Error("商品读取已停止");
+          if (deps.tokenStore.getWebSocketStatus(tokenId) !== "connected")
+            throw new Error("连接已断开，请重新读取商品");
+          return deps.tokenStore.sendMessageWithPromise(
+            tokenId,
+            command,
+            body,
+            15000,
+          );
+        };
+        return loadActivityGoods(send, kind);
+      });
+    } finally {
+      if (ownsSlot) {
+        try {
+          deps.tokenStore.closeWebSocketConnection(tokenId);
+        } finally {
+          deps.releaseConnectionSlot();
+        }
+      }
+      deps.isRunning.value = false;
+    }
+  };
+}
 
 export function createTasksExtended(deps) {
   const {
@@ -21,6 +69,7 @@ export function createTasksExtended(deps) {
     currentRunningTokenId,
     batchSettings,
     extendedSettings,
+    currentProgress,
   } = deps;
   const run = async (definition, override) => {
     if (isRunning.value) return;
@@ -42,9 +91,16 @@ export function createTasksExtended(deps) {
     if (definition.value === "batchNightmareChallengePresets")
       return runNightmareGroupTask(deps, settings);
     isRunning.value = true;
+    if (currentProgress) currentProgress.value = 0;
     shouldStop.value = false;
     let failed = 0;
     let completed = 0;
+    let processed = 0;
+    const updateProgress = () => {
+      processed++;
+      if (currentProgress)
+        currentProgress.value = Math.round((processed / ids.length) * 100);
+    };
     ids.forEach((id) => {
       tokenStatus.value[id] = "waiting";
     });
@@ -64,6 +120,7 @@ export function createTasksExtended(deps) {
         if (!token) {
           tokenStatus.value[tokenId] = "failed";
           failed++;
+          updateProgress();
           continue;
         }
         try {
@@ -84,9 +141,14 @@ export function createTasksExtended(deps) {
                 });
               tokenStatus.value[tokenId] = "running";
               currentRunningTokenId.value = tokenId;
-              await ensureConnection(tokenId, 2, (owned) => {
-                ownsSlot = owned;
-              });
+              await ensureConnection(
+                tokenId,
+                2,
+                (owned) => {
+                  ownsSlot = owned;
+                },
+                connectionOptions,
+              );
               check();
               const send = async (command, body) => {
                 check();
@@ -117,6 +179,7 @@ export function createTasksExtended(deps) {
                 send,
                 check,
                 log,
+                loadActivityGoods: (kind) => loadActivityGoods(send, kind),
                 runSaltField: async (value, options) => {
                   const { createSaltFieldTasks, inSaltFieldWindow } =
                     await import("../../vendor/tasksSaltField-CqLz-nQR.js");
@@ -195,6 +258,8 @@ export function createTasksExtended(deps) {
             error.message || "操作失败",
             error.interrupted ? "warning" : "error",
           );
+        } finally {
+          updateProgress();
         }
       }
     } finally {

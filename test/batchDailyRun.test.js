@@ -39,9 +39,10 @@ function fixture({
   connectionSucceeds = true,
   runError = null,
   incomplete = 0,
+  initializationError = null,
 } = {}) {
   const logs = [];
-  const state = { runs: 0, closed: 0, connected };
+  const state = { runs: 0, closed: 0, connected, commands: [] };
   const context = {
     selectedTokens: { value: ["account-a"] },
     tokens: {
@@ -75,7 +76,14 @@ function fixture({
         state.closed++;
         state.connected = false;
       },
-      sendMessageWithPromise: async () => ({}),
+      sendMessageWithPromise: async (_id, command) => {
+        state.commands.push(command);
+        if (initializationError) {
+          state.connected = false;
+          throw initializationError;
+        }
+        return { role: { id: 42 } };
+      },
     },
     DailyTaskRunner: class {
       async run() {
@@ -87,7 +95,7 @@ function fixture({
   };
   vm.createContext(context);
   vm.runInContext(
-    `${declarations}\nglobalThis.api = { startBatch, waitForConnectionSlot };`,
+    `${declarations}\nglobalThis.api = { startBatch, waitForConnectionSlot, ensureConnection };`,
     context,
   );
   return { context, state, logs, ...context.api };
@@ -101,6 +109,26 @@ test("batch rate-limit failure executes once and preserves another caller's conn
   assert.equal(f.context.connectionQueue.active, 1);
   assert.equal(f.context.tokenStatus.value["account-a"], "failed");
   assert.equal(f.context.isRunning.value, false);
+});
+
+test("strict extension initialization stops on closed transport and never starts a level fight", async () => {
+  const failed = fixture({
+    initializationError: new Error("WebSocket 连接已关闭"),
+  });
+  await assert.rejects(
+    failed.ensureConnection("account-a", 2, null, {
+      requireRoleInfo: true,
+      initializeBattle: false,
+    }),
+    /未发送操作.*连接已关闭/,
+  );
+  assert.deepEqual(failed.state.commands, ["role_getroleinfo"]);
+  const ready = fixture();
+  await ready.ensureConnection("account-a", 2, null, {
+    requireRoleInfo: true,
+    initializeBattle: false,
+  });
+  assert.deepEqual(ready.state.commands, ["role_getroleinfo"]);
 });
 
 test("failed connection releases its slot once without releasing another account's slot", async () => {

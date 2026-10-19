@@ -15,14 +15,26 @@
         filterable
         placeholder="选择功能"
       />
-      <n-form v-if="definition" label-placement="left" label-width="160">
+      <n-form v-if="definition" label-placement="top">
         <n-form-item
           v-for="field in definition.fields"
           :key="field.key"
           :label="field.label"
         >
+          <n-select
+            v-if="field.type === 'gameGoods'"
+            :value="selectedGoods?.goodsId ?? null"
+            :options="goodsOptions"
+            :render-label="renderGoodsLabel"
+            :virtual-scroll="false"
+            :loading="loadingGoods"
+            :disabled="busy || loadingGoods"
+            filterable
+            placeholder="按道具名称选择商品"
+            @update:value="(value) => update(field.key, value)"
+          />
           <n-input-number
-            v-if="field.type === 'number'"
+            v-else-if="field.type === 'number'"
             :value="draft[field.key]"
             :min="field.min"
             :max="field.max"
@@ -45,6 +57,32 @@
           />
         </n-form-item>
       </n-form>
+      <template v-if="goodsField">
+        <n-button
+          :loading="loadingGoods"
+          :disabled="busy || !selectedCount || loadingGoods"
+          @click="refreshGoods"
+          >读取 / 刷新游戏商品</n-button
+        >
+        <n-text depth="3"
+          >商品列表来自第一个勾选角色；执行时会逐个角色重新核验活动、余额和限购。充值商品仅展示，请在游戏内购买。</n-text
+        >
+        <n-alert v-if="goodsError" type="warning">{{ goodsError }}</n-alert>
+        <n-alert v-else-if="goodsLoaded && !goods.length" type="info"
+          >该角色当前没有开放的活动商品。</n-alert
+        >
+        <n-alert v-if="selectedGoods" type="info"
+          >{{ selectedGoods.name }} · 单价 {{ selectedGoods.priceText }} ·
+          {{
+            selectedGoods.remaining == null
+              ? "不限购"
+              : `剩余 ${selectedGoods.remaining} 次`
+          }}</n-alert
+        >
+      </template>
+      <n-text v-if="validationError" type="warning">{{
+        validationError
+      }}</n-text>
       <n-alert
         v-if="selectedTask === 'batchNightmareChallengePresets'"
         type="info"
@@ -57,7 +95,14 @@
       <n-space>
         <n-button
           type="primary"
-          :disabled="busy || !selectedCount || !definition"
+          :disabled="
+            busy ||
+            loadingGoods ||
+            !selectedCount ||
+            !definition ||
+            !!validationError ||
+            (!!goodsField && (!selectedGoods || selectedGoods.disabled))
+          "
           @click="$emit('run', selectedTask)"
           >执行所选功能</n-button
         >
@@ -76,13 +121,18 @@
   </n-card>
 </template>
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, h, ref, watch } from "vue";
 import GameEnhancementSettings from "@/components/Setting/GameEnhancementSettings.vue";
-import { extendedTaskCatalog } from "@/utils/batch/extendedTaskCatalog.js";
+import {
+  extendedTaskCatalog,
+  normalizeExtendedTaskSettings,
+} from "@/utils/batch/extendedTaskCatalog.js";
 const props = defineProps({
   busy: Boolean,
   selectedCount: { type: Number, default: 0 },
   settings: { type: Object, default: () => ({}) },
+  accountKey: { type: String, default: "" },
+  loadGoods: { type: Function, default: null },
 });
 const emit = defineEmits(["run", "stop", "update:settings"]);
 const groups = [...new Set(extendedTaskCatalog.map((item) => item.group))].map(
@@ -100,6 +150,72 @@ const definition = computed(() =>
 );
 const draft = ref({});
 const showEnhancements = ref(false);
+const goods = ref([]);
+const goodsLoaded = ref(false);
+const goodsError = ref("");
+const loadingGoods = ref(false);
+let goodsRequest = 0;
+const goodsField = computed(() =>
+  definition.value?.fields.find((field) => field.type === "gameGoods"),
+);
+const selectedGoods = computed(() =>
+  goods.value.find((item) => item.goodsId === draft.value.goodsId),
+);
+const goodsOptions = computed(() =>
+  goods.value.map((item) => ({
+    label: item.label,
+    value: item.goodsId,
+    disabled: item.disabled,
+  })),
+);
+const renderGoodsLabel = (option) =>
+  h(
+    "span",
+    {
+      style: {
+        whiteSpace: "normal",
+        overflowWrap: "anywhere",
+        lineHeight: "1.5",
+      },
+    },
+    option.label,
+  );
+const validationError = computed(() => {
+  if (!definition.value) return "";
+  try {
+    normalizeExtendedTaskSettings(selectedTask.value, draft.value);
+    return "";
+  } catch (error) {
+    return error.message;
+  }
+});
+async function refreshGoods() {
+  if (!goodsField.value || !props.loadGoods || props.busy || loadingGoods.value)
+    return;
+  const request = ++goodsRequest;
+  const source = goodsField.value.source;
+  loadingGoods.value = true;
+  goodsError.value = "";
+  goodsLoaded.value = false;
+  goods.value = [];
+  try {
+    const result = await props.loadGoods(source);
+    if (request !== goodsRequest) return;
+    goods.value = result;
+    goodsLoaded.value = true;
+    if (
+      !result.some(
+        (item) => item.goodsId === draft.value.goodsId && !item.disabled,
+      )
+    )
+      update("goodsId", null);
+  } catch (error) {
+    if (request === goodsRequest)
+      goodsError.value = error.message || "读取商品失败，请重试";
+  } finally {
+    if (request === goodsRequest) loadingGoods.value = false;
+  }
+}
 watch(selectedGroup, () => {
   selectedTask.value = taskOptions.value[0].value;
 });
@@ -115,6 +231,15 @@ watch(
   },
   { immediate: true },
 );
+watch([selectedTask, () => props.accountKey], () => {
+  goodsRequest++;
+  goods.value = [];
+  goodsLoaded.value = false;
+  goodsError.value = "";
+  loadingGoods.value = false;
+  if (goodsField.value && props.selectedCount && !props.busy)
+    void refreshGoods();
+});
 function update(key, value) {
   draft.value = { ...draft.value, [key]: value };
   emit("update:settings", {

@@ -208,6 +208,55 @@ export async function runExtendedGameOperation(value, settings, context) {
   }
   if (["batchSaltFieldDig", "batchSaltFieldLineup"].includes(value))
     return context.runSaltField(value, options);
+  if (["extendedActivityGoods", "batchActivityExchange"].includes(value)) {
+    const kind = value === "batchActivityExchange" ? "exchange" : "shop";
+    const goods = await context.loadActivityGoods(kind);
+    check();
+    const selected = goods.find((item) => item.goodsId === options.goodsId);
+    if (!selected)
+      throw new Error("所选商品已下架或当前角色尚未开放该活动，请重新读取商品");
+    log(`商品：${selected.name}；单价：${selected.priceText}`);
+    if (selected.remaining === 0) {
+      log("该商品已达限购，跳过");
+      return;
+    }
+    if (selected.disabled)
+      throw new Error(selected.reason || "该商品当前不可购买");
+    const requested = options.num ?? options.quantity;
+    const affordable =
+      selected.price > 0
+        ? Math.floor(selected.balance / selected.price)
+        : requested;
+    const count = Math.min(
+      requested,
+      selected.remaining ?? requested,
+      affordable,
+    );
+    if (!Number.isSafeInteger(count) || count <= 0)
+      throw new Error("商品数量或可用余额无效");
+    try {
+      await send(
+        definition.command,
+        kind === "exchange"
+          ? {
+              activityId: selected.activityId,
+              goodsId: selected.goodsId,
+              quantity: count,
+            }
+          : { goodsId: selected.goodsId, num: count },
+      );
+    } catch (error) {
+      if (/-10006\b/.test(error.message))
+        throw new Error(
+          `${selected.name}被服务器拒绝（-10006），请在游戏内确认商品及购买条件；本次未重试`,
+        );
+      throw error;
+    }
+    log(
+      `${kind === "exchange" ? "兑换" : "购买"}${selected.name} ${count} 次，请求已成功响应`,
+    );
+    return;
+  }
   if (
     [
       "batchOpenDiamondBox",

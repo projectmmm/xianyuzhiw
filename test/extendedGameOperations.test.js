@@ -8,7 +8,10 @@ import {
   extendedTaskCatalog,
   normalizeExtendedTaskSettings,
 } from "../src/utils/batch/extendedTaskCatalog.js";
-import { createTasksExtended } from "../src/utils/batch/tasksExtended.js";
+import {
+  createExtendedGoodsLoader,
+  createTasksExtended,
+} from "../src/utils/batch/tasksExtended.js";
 
 const clone = (value) => structuredClone(value);
 
@@ -29,8 +32,14 @@ test("invalid extension parameters cannot dispatch any command", async () => {
     );
   }
   assert.equal(calls, 0);
-  for (const task of extendedTaskCatalog)
-    assert.ok(normalizeExtendedTaskSettings(task.value));
+  for (const task of extendedTaskCatalog) {
+    if (task.fields.some((field) => field.type === "gameGoods"))
+      assert.throws(
+        () => normalizeExtendedTaskSettings(task.value),
+        /按道具名称选择/,
+      );
+    else assert.ok(normalizeExtendedTaskSettings(task.value));
+  }
 });
 
 test("pet merge excludes equipped and locked pets and carries exact current UIDs", () => {
@@ -196,6 +205,7 @@ test("batch extensions preserve borrowed connections and report server errors", 
     isRunning: { value: false },
     shouldStop: { value: false },
     currentRunningTokenId: { value: null },
+    currentProgress: { value: 0 },
     batchSettings: { commandDelay: 1 },
     extendedSettings: { value: {} },
     ensureConnection: async (_id, _retry, owned) => owned(false),
@@ -215,4 +225,167 @@ test("batch extensions preserve borrowed connections and report server errors", 
   assert.equal(released, 0);
   assert.equal(state.tokenStatus.value.a, "failed");
   assert.equal(state.isRunning.value, false);
+  assert.equal(state.currentProgress.value, 100);
+});
+
+test("old placeholder goods cannot connect or send a purchase", async () => {
+  for (const settings of [{}, { goodsId: 1 }, { goodsId: null }]) {
+    let calls = 0;
+    await assert.rejects(
+      runExtendedGameOperation("extendedActivityGoods", settings, {
+        send() {
+          calls++;
+        },
+      }),
+      /按道具名称选择/,
+    );
+    assert.equal(calls, 0);
+  }
+});
+
+test("named activity goods revalidate each account, cap stock and never retry refused writes", async () => {
+  const goods = {
+    goodsId: 26010161,
+    activityId: 2601016,
+    name: "招募令 ×2",
+    priceText: "免费",
+    price: 0,
+    remaining: 1,
+    disabled: false,
+  };
+  const writes = [];
+  await runExtendedGameOperation(
+    "extendedActivityGoods",
+    { goodsId: goods.goodsId, num: 10 },
+    {
+      loadActivityGoods: async () => [goods],
+      send: async (command, body) => {
+        writes.push({ command, body });
+        return {};
+      },
+    },
+  );
+  assert.deepEqual(writes, [
+    {
+      command: "activity_commonbuygoods",
+      body: { goodsId: goods.goodsId, num: 1 },
+    },
+  ]);
+  for (const list of [
+    [],
+    [{ ...goods, disabled: true, reason: "需在游戏内充值" }],
+  ]) {
+    await assert.rejects(
+      runExtendedGameOperation(
+        "extendedActivityGoods",
+        { goodsId: goods.goodsId },
+        {
+          loadActivityGoods: async () => list,
+          send: async () => {
+            throw new Error("must not buy");
+          },
+        },
+      ),
+      /已下架|游戏内充值/,
+    );
+  }
+  let attempts = 0;
+  await assert.rejects(
+    runExtendedGameOperation(
+      "extendedActivityGoods",
+      { goodsId: goods.goodsId },
+      {
+        loadActivityGoods: async () => [goods],
+        send: async () => {
+          attempts++;
+          throw new Error("服务器错误: -10006 - 未知错误");
+        },
+      },
+    ),
+    /招募令.*未重试/,
+  );
+  assert.equal(attempts, 1);
+});
+
+test("activity exchange takes its activity and affordable quantity from fresh game goods", async () => {
+  const writes = [];
+  await runExtendedGameOperation(
+    "batchActivityExchange",
+    { goodsId: 260101501, activityId: 1, quantity: 10 },
+    {
+      loadActivityGoods: async () => [
+        {
+          goodsId: 260101501,
+          activityId: 2601015,
+          name: "珍珠 ×1",
+          price: 4,
+          priceText: "活动币 ×4",
+          balance: 9,
+          remaining: 3,
+        },
+      ],
+      send: async (command, body) => {
+        writes.push({ command, body });
+        return {};
+      },
+    },
+  );
+  assert.deepEqual(writes, [
+    {
+      command: "activity_exchange",
+      body: { activityId: 2601015, goodsId: 260101501, quantity: 2 },
+    },
+  ]);
+});
+
+test("shop parameters fail once before connecting and read-only previews release only owned slots", async () => {
+  let connects = 0;
+  let closes = 0;
+  let releases = 0;
+  const state = {
+    selectedTokens: { value: ["a"] },
+    tokens: { value: [{ id: "a" }] },
+    tokenStatus: { value: {} },
+    isRunning: { value: false },
+    shouldStop: { value: false },
+    currentRunningTokenId: { value: null },
+    batchSettings: {},
+    extendedSettings: { value: {} },
+    ensureConnection: async (_id, _retry, owned, options) => {
+      connects++;
+      assert.equal(options.initializeBattle, false);
+      assert.equal(options.requireRoleInfo, true);
+      owned(true);
+    },
+    releaseConnectionSlot: () => releases++,
+    tokenStore: {
+      getWebSocketStatus: () => "connected",
+      closeWebSocketConnection: () => closes++,
+      sendMessageWithPromise: async () => {
+        throw new Error("fixture read failed");
+      },
+    },
+    addLog() {},
+    message: { info() {}, warning() {}, error() {} },
+  };
+  await assert.rejects(
+    createTasksExtended(state).extendedActivityGoods(),
+    /按道具名称选择/,
+  );
+  assert.equal(connects, 0);
+  await assert.rejects(
+    createExtendedGoodsLoader(state)("shop"),
+    /fixture read failed/,
+  );
+  assert.equal(connects, 1);
+  assert.equal(closes, 1);
+  assert.equal(releases, 1);
+  assert.equal(state.isRunning.value, false);
+  state.ensureConnection = async (_id, _retry, owned) => owned(false);
+  await assert.rejects(
+    createExtendedGoodsLoader(state)("shop"),
+    /fixture read failed/,
+  );
+  assert.equal(closes, 1);
+  assert.equal(releases, 1);
 });

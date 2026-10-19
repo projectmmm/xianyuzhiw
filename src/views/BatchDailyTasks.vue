@@ -720,6 +720,8 @@
           :settings="extendedSettings"
           @update:settings="saveExtendedSettings"
           @run="runExtendedTask"
+          :account-key="selectedTokens.join('|')"
+          :load-goods="loadExtendedGoods"
           @stop="shouldStop = true"
         />
       </div>
@@ -3111,7 +3113,10 @@ import {
   getExtendedTask,
   normalizeExtendedTaskSettings,
 } from "@/utils/batch/extendedTaskCatalog.js";
-import { createTasksExtended } from "@/utils/batch/tasksExtended.js";
+import {
+  createExtendedGoodsLoader,
+  createTasksExtended,
+} from "@/utils/batch/tasksExtended.js";
 import { DailyTaskRunner } from "@/utils/dailyTaskRunner";
 import { goldItemsConfig, merchantConfig } from "@/utils/dreamConstants";
 
@@ -6064,6 +6069,7 @@ const ensureConnection = async (
   tokenId,
   maxRetries = 2,
   onSlotChange = null,
+  options = {},
 ) => {
   const latestToken = tokens.value.find((t) => t.id === tokenId);
   if (!latestToken) {
@@ -6134,12 +6140,21 @@ const ensureConnection = async (
   // Initialize Game Data (Critical for Battle Version and Session)
   try {
     // Fetch Role Info first (Standard flow)
-    await tokenStore.sendMessageWithPromise(
+    const roleInfo = await tokenStore.sendMessageWithPromise(
       tokenId,
       "role_getroleinfo",
       {},
       5000,
     );
+
+    if (options.requireRoleInfo && !(roleInfo?.role ?? roleInfo?.body?.role))
+      throw new Error("角色数据不完整");
+    if (
+      options.requireRoleInfo &&
+      tokenStore.getWebSocketStatus(tokenId) !== "connected"
+    )
+      throw new Error("WebSocket 连接已关闭");
+    if (options.initializeBattle === false) return true;
 
     // Fetch Battle Version
     const res = await tokenStore.sendMessageWithPromise(
@@ -6152,6 +6167,8 @@ const ensureConnection = async (
       tokenStore.setBattleVersion(res.battleData.version);
     }
   } catch (e) {
+    if (options.requireRoleInfo)
+      throw new Error(`读取角色信息失败，未发送操作：${e.message}`);
     addLog({
       time: new Date().toLocaleTimeString(),
       message: `初始化数据失败: ${e.message}`,
@@ -6176,6 +6193,7 @@ const createTaskDeps = () => ({
   addLog,
   message,
   currentRunningTokenId,
+  currentProgress,
   // 延迟配置
   delayConfig: {
     command: batchSettings.commandDelay,
@@ -6213,6 +6231,7 @@ const extendedTasks = createTasksExtended({
   ...createTaskDeps(),
   extendedSettings,
 });
+const loadExtendedGoods = createExtendedGoodsLoader(createTaskDeps());
 
 // 初始化任务模块
 const tasksHangUp = createTasksHangUp(createTaskDeps());

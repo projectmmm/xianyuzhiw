@@ -19,6 +19,13 @@ const activity = () => number("activityId", "活动 ID", 0, 999999999, 0);
 const goods = () => number("goodsIndex", "商品序号", 0, 9999, 0);
 const shop = (key = "id") => number(key, "商品 ID", 1, 999999);
 const id = (key = "id", label = "奖励 ID") => number(key, label, 1, 999999999);
+const gameGoods = (source) => ({
+  key: "goodsId",
+  label: "商品",
+  type: "gameGoods",
+  source,
+  default: null,
+});
 const task = (
   value,
   label,
@@ -86,7 +93,7 @@ export const extendedTaskCatalog = [
     "活动商店购买",
     "活动",
     "activity_commonbuygoods",
-    [shop("goodsId"), number("num", "购买数量", 1, 100)],
+    [gameGoods("shop"), number("num", "最多购买数量", 1, 100)],
   ),
   task("batchSaltFieldDig", "盐场自动刨地", "盐场", null, [
     number("maxActions", "最多刨地次数", 100, 2000),
@@ -443,9 +450,8 @@ export const extendedTaskCatalog = [
     [activity()],
   ),
   task("batchActivityExchange", "消耗活动兑换", "活动", "activity_exchange", [
-    activity(),
-    shop("goodsId"),
-    number("quantity", "兑换数量", 1, 100),
+    gameGoods("exchange"),
+    number("quantity", "最多兑换数量", 1, 100),
   ]),
   task("batchAutumnUseItem", "消耗助威道具", "活动", "autumn_useitem", [
     number("itemNum", "消耗数量", 1, 1000),
@@ -483,6 +489,17 @@ export function normalizeExtendedTaskSettings(value, settings = {}) {
   if (!task) throw new Error("未知扩展功能");
   const result = {};
   for (const field of task.fields) {
+    if (field.type === "gameGoods") {
+      const selected = Number(settings?.[field.key]);
+      if (
+        !Number.isSafeInteger(selected) ||
+        selected <= 1 ||
+        selected > 999999999
+      )
+        throw new Error("请先读取当前游戏商品，并按道具名称选择商品");
+      result[field.key] = selected;
+      continue;
+    }
     if (settings?.[field.key] === null)
       throw new Error(`${field.label}不能为空`);
     const input = settings?.[field.key] ?? field.default;
