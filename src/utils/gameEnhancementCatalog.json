@@ -1,0 +1,205 @@
+[
+  {
+    "key": "skipPopup",
+    "name": "跳过弹窗",
+    "description": "自动关闭弹窗/公告/确认框",
+    "file": "basic.js",
+    "group": "基础设置"
+  },
+  {
+    "key": "skipAd",
+    "name": "广告跳过",
+    "description": "拦截激励视频，直接获得奖励",
+    "file": "basic.js",
+    "group": "基础设置"
+  },
+  {
+    "key": "skipChest",
+    "name": "跳过宝箱",
+    "description": "批量开宝箱跳过动画",
+    "file": "basic.js",
+    "group": "基础设置"
+  },
+  {
+    "key": "redRefineSkip",
+    "name": "红淬跳过",
+    "description": "跳过红色淬炼确认弹窗",
+    "file": "basic.js",
+    "group": "基础设置"
+  },
+  {
+    "key": "heroAttrs",
+    "name": "属性增强",
+    "description": "显示洗练等特殊战斗属性",
+    "file": "hero_attrs_enhance.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "arenaReport",
+    "name": "战报增强",
+    "description": "点击头像查看对手信息",
+    "file": "basic.js",
+    "group": "基础设置"
+  },
+  {
+    "key": "perfOpt",
+    "name": "性能优化",
+    "description": "降低游戏帧率至 30fps，并关闭粒子效果",
+    "file": "basic.js",
+    "group": "基础设置"
+  },
+  {
+    "key": "disableSound",
+    "name": "关闭声音",
+    "description": "关闭游戏音乐和音效",
+    "file": "basic.js",
+    "group": "基础设置"
+  },
+  {
+    "key": "disablePowerSave",
+    "name": "关闭省电",
+    "description": "自动选择永不进入省电模式",
+    "file": "basic.js",
+    "group": "基础设置"
+  },
+  {
+    "key": "autoReconnect",
+    "name": "自动重连",
+    "description": "断线自动重连+保活，失败后刷新页面",
+    "file": "auto_reconnect.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "battleFlyYi",
+    "name": "战斗飘字",
+    "description": "飘字亿化+颜色+描边+阴影+轮询优化",
+    "file": "battle_fly_yi.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "nightmareAccel",
+    "name": "十殿加速",
+    "description": "十殿战斗加速+UI全局加速(可调)",
+    "file": "nightmare_accel.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "nightmareEnhance",
+    "name": "十殿增强",
+    "description": "倒计时+自动解散+领奖+抽奖",
+    "file": "nightmare_enhance.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "evoTowerMerge",
+    "name": "怪异塔合成",
+    "description": "一键合成+自动抽合+领奖",
+    "file": "evo_tower_merge.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "simulateBattle",
+    "name": "模拟对战",
+    "description": "战斗模拟与数据分析",
+    "file": "simulate_battle.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "avatarSwap",
+    "name": "更换头像",
+    "description": "修复H5环境更换头像功能",
+    "file": "avatar_headimg_fix.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "skinSwitch",
+    "name": "皮肤切换",
+    "description": "武将皮肤切换功能",
+    "file": "skin_switch.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "fourSaintUpgrade",
+    "name": "四圣升级",
+    "description": "四圣自动升级按钮",
+    "file": "four_saint_upgrade.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "heroLevelUp",
+    "name": "武将升级",
+    "description": "目标等级/速度智能升级",
+    "file": "hero_level_up.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "quenchAccel",
+    "name": "洗炼加速",
+    "description": "淬炼动画2.34x加速",
+    "file": "quench_accel.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "quenchPanel",
+    "name": "洗炼面板",
+    "description": "洗炼增强面板功能",
+    "file": "quench_panel.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "saltedFishAnalysis",
+    "name": "咸鱼分析",
+    "description": "数据分析与统计工具",
+    "file": "salted_fish.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "saltFieldZoom",
+    "name": "盐场视距",
+    "description": "盐场无限视距缩放",
+    "file": "salt_field_zoom.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "starUpgrade",
+    "name": "图鉴升星助手",
+    "description": "英雄升星/批量图鉴升星（鱼灵·皮肤 club=0）/领奖/四圣升级",
+    "file": "star_upgrade.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "consumeActivity",
+    "name": "消耗活动",
+    "description": "消耗活动助手：招募/宝箱/钓鱼/盐罐/金砖自动消耗、领奖、兑换",
+    "file": "consume_activity.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "opponentWash",
+    "name": "对手洗练",
+    "description": "自动查询对手洗练+历史记录",
+    "file": "opponent_wash.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "peachAuto",
+    "name": "蟠桃园助手",
+    "description": "蟠桃园目标策略与自动挑战面板",
+    "file": "peach_auto.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "achievementReward",
+    "name": "成就奖励",
+    "description": "在成就页增加连续领取按钮，进度未推进时停止",
+    "file": "achievement_reward.js",
+    "group": "游戏增强"
+  },
+  {
+    "key": "localResources",
+    "name": "本地贴图",
+    "description": "使用当前浏览器保存的 DDS .asar 资源包",
+    "file": "local_res_dds.js",
+    "group": "游戏增强"
+  }
+]

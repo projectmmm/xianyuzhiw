@@ -1,0 +1,60 @@
+xianyuzhiw 网络与隐私检查
+检查日期：2026-10-19
+检查对象：项目根目录 的当前源码、public 游戏脚本、dist 生产构建、worker.js 和 render-backend。
+本轮为静态检查，没有修改项目、没有导入真实账号、没有执行真实游戏操作或原 EXE。
+
+结论
+未发现本次新增功能将 BIN、Token 或角色信息自动上传到参考软件作者服务器、统计平台或其他固定第三方收集端。
+但是，整个项目并非强制“全部通信仅到游戏官方”：原有的自定义地址、登录代理、URL 参数导入以及独立云后端仍须区分。不能据此承诺绝无第三方通信。
+
+1. 常规本地 BIN 与游戏功能
+src/utils/token.ts:118、149：BIN/凭据字节以 POST 发往 https://xxz-xyzw.hortorgames.com/login/authuser 与 /login/serverlist，用于游戏认证和角色列表。
+src/stores/tokenStore.ts:789：默认 WSS 为 wss://xxz-xyzw.hortorgames.com/agent，Token 位于游戏握手查询参数 p 中。
+src/stores/legionWarStore.js:82 与 src/vendor/tasksSaltField-CqLz-nQR.js：盐场连接为 wss://xxz-xyzw-new.hortorgames.com/agent。
+资源及战斗服务使用代码配置的 *.hortorgames.com。BIN、角色列表和设置主要保存在浏览器 localStorage/IndexedDB。
+本次新增批量操作复用这些连接；盐场移植已去掉参考软件的 Worker 中继。
+
+2. 本次新增游戏增强
+29 个开关默认关闭。public/game/enhancement-loader.js:19、31 只从本站加载目录与脚本；JSZip 已放在本站静态文件中，不使用外部 CDN。
+增强脚本通过现有游戏 service/WebSocket 发游戏命令；模拟对战的静态图标来自 xxz-xyzw-res.hortorgames.com。
+src/utils/localResourcePack.js：DDS .asar 由 File/Blob 切片读取，保存在本机浏览器 IndexedDB；没有网络上传实现。
+咸鱼分析记录协议并提供本地导出，没有发现把协议日志自动上传远程收集端的实现。
+源码没有发现 sendBeacon、Sentry、百度统计等固定外传/统计入口；URL 及调用点扫描还覆盖生产构建。
+
+3. 会先经过你的网站服务器的路径（现有功能）
+手机验证码、手机号登录：src/views/TokenImport/MobileTokenForm.vue:274、387，先请求本站 /api/hortor-ucenter、/api/hortor，再由 worker.js 转到 comb-platform.hortorgames.com；验证码接口通过 Host 路由到 ucenter-app-server.hortorgames.com。
+微信扫码：src/views/TokenImport/WxQrcodeForm.vue:327、409、534，先请求本站 /api/weixin、/api/hortor，再转到 open.weixin.qq.com / long.open.weixin.qq.com 和游戏平台。
+worker.js:90-99 转发原请求体，并把官方响应回传浏览器。代理可接触手机号、验证码/微信授权交换及返回凭据的请求响应（部分请求体有应用层编码）。
+如果网站部署在 Cloudflare Pages 并使用本项目 _worker.js，这些流量也经过 Cloudflare 运行环境。代码未发现额外数据库留存，但源码无法证明实际部署环境没有日志。
+这不是 BIN 文件上传接口，但也不是浏览器直接只连官方。普通本地 BIN 导入无需走上述手机/微信代理。
+
+4. 用户输入决定的第三方连接及脚本（现有功能）
+URL 获取/刷新 Token：src/views/TokenImport/UrlTokenForm.vue:136、src/stores/tokenStore.ts:381、TokenImport.vue:1884。会 GET 用户填写或链接参数指定的地址，没有官方域名限制。
+该 GET 没有自动把全部本地 BIN/Token 放进请求体，但目标站可获得请求地址、其中自带的查询参数及常规请求元数据。
+自定义 WebSocket：src/stores/tokenStore.ts:791 直接采用 customWsUrl；src/stores/localTokenManager.js:203 同样如此。没有官方域名白名单，连接后的游戏命令会发给所配置主机；若 URL 含 p 等凭据参数，目标也会收到这些参数。代码不会自动把默认官方 URL 的 Token 拼到任意自定义地址上。
+旧版 TokenManager.vue:469 存在本站 /api/proxy 回退引用；当前 worker.js 未实现通用 /api/proxy。public/game/xh.js:770 的通用服务器代理 enabled 为 false。实际线上服务器另有实现时需另查。
+
+public/game/xh.js:2563、2631、3325、3685 的“雪花”脚本管理器从本地 userScripts 读取并自动执行已启用的自定义脚本；脚本直接注入游戏页面，不是隔离的安全沙箱。GM_require/GM_xmlhttpRequest 可访问脚本指定的网址。因此曾导入的第三方脚本也可能读取并外传同源凭据，必须逐个审计。默认未保存脚本时列表为空；本轮没有读取用户真实浏览器的脚本库，不能确认已有脚本是否上传。新增29项增强并不依赖该用户脚本库。
+
+5. 独立云后端（存在源码，当前前端未接通）
+render-backend/server.js:25 通过环境变量创建 Supabase 客户端。
+/api/tokens 的 POST 在 :444-449 将请求体写入 Supabase tokens 表；任务、执行时间、token_name 与日志也写数据库（:308、317 等）。
+若单独部署并调用此后端，数据会保存到配置的 Supabase 实例。不是仅浏览器本地存储。
+当前 src/public 没有找到该后端接口或 Supabase 的调用，dist 也没有 Supabase、/api/tokens、/api/tasks 接入；主项目启动/构建脚本不启动这个后端。本次交付 dist 不包含 render-backend。
+src/api/index.js 还保留旧 /api/v1 API 定义，但未发现当前页面导入调用；不能把残留定义当作已发生上传。
+
+6. URL 中的凭据及检查边界
+src/router/index.js:32 及 TokenImport.vue:1872 起支持通过 query 参数 token/api/wsUrl 导入。若通过含 ?token=真实凭据 的网页链接访问，完整查询参数会随页面请求到网站主机，可能进入托管/CDN/访问日志；这不是额外 fetch 上传，但仍属于凭据离开纯本地。
+游戏会从官方服务器动态获取版本、配置与远程代码（public/game/main.2a00e.js:365 起）。本次没有下载并逐版本审计所有远程官方代码，因此不能排除远程代码未来引入其他 SDK 域名。
+未检查线上服务器、CDN 日志、浏览器插件或第三方地址的实际配置，也未做带真实账号的网络抓包。
+GitHub、W3C、Tampermonkey、JSZip 文档等字符串属于注释、命名空间、错误消息或许可证；没有把仅出现域名当作实际上传证据。
+
+检查方法及证据
+扫描 375 个代码/配置/构建文件，定位 fetch、XHR、WebSocket、Beacon、动态脚本/图片加载和代理转发。
+对 325 个 JS/TS/Vue script 使用 Babel 解析，解析失败 0，检查解码后的字符串和网络调用点。
+对实际加载的 sh1.js 额外解析 71 个 VM 函数、761 个字符串；移除业务入口后只初始化字节码解码器，未执行原 VM 业务程序。未发现独立上传 URL 或网络 API 字符串。
+重要文件 SHA-256 见 evidence.json；原始扫描数据仅保存在工作目录，没有读取浏览器中保存的真实凭据。
+
+如果目标是严格限制为官方通信
+应统一校验 HTTP/WSS 目标白名单，关闭任意 URL/自定义 WS 和未审计的用户脚本、避免在网页 query 传递凭据；手机号/微信代理和 Supabase 后端需明确取舍，并配合线上 CSP/出口限制。仅扫描不到固定第三方域名，不能代替这些限制。
+本轮未改变上述现有功能。
