@@ -1,4 +1,8 @@
 import {
+  loadExtendedChoices,
+  resolveGameSelections,
+} from "../gameSelections.js";
+import {
   deriveFilmActivityIds,
   getBattlePreset,
 } from "./extendedFeatureHelpers.js";
@@ -86,9 +90,22 @@ const petSignature = (role) =>
 /** Run a single account through the supplied, already-owned game connection. */
 export async function runExtendedGameOperation(value, settings, context) {
   const definition = getExtendedTask(value);
-  const options = normalizeExtendedTaskSettings(value, settings);
+  let options = normalizeExtendedTaskSettings(value, settings);
+  const selectedSettings = { ...options };
   const { send, check = () => {}, log = () => {}, now = Date.now } = context;
   const roleInfo = async () => getRole(await send("role_getroleinfo", {}));
+  const hasSelections = definition.fields.some(
+    (field) => field.type === "gameSelection",
+  );
+  const revalidate = async () => {
+    if (!hasSelections) return;
+    const choices = await (context.loadChoices
+      ? context.loadChoices(value)
+      : loadExtendedChoices(send, value));
+    check();
+    options = resolveGameSelections(value, selectedSettings, choices, log);
+  };
+  await revalidate();
   if (
     [
       "batchGenieChallenge",
@@ -471,26 +488,28 @@ export async function runExtendedGameOperation(value, settings, context) {
     throw new Error("邮件超过单次整理上限，请重新执行剩余部分");
   }
   if (!definition.command) throw new Error("扩展功能未注册");
-  const body = { ...definition.body, ...options };
-  delete body.count;
-  if (value === "batchBookBatchUpgrade") {
-    body.isArtifact = options.bookType === "fish";
-    body.isSkin = options.bookType === "skin";
-    if (body.isArtifact || body.isSkin) body.club = 0;
-    delete body.bookType;
-  }
-  if (
-    ["extendedCelebratePersonal", "extendedCelebrateServer"].includes(value)
-  ) {
-    body.idList = [options.id];
-    delete body.id;
-  }
-  if (value === "batchClaimBoxWeeklyRewards") {
-    body.selectRewardsMap = { [String(options.itemId)]: 1 };
-    delete body.itemId;
-  }
-  for (let index = 0; index < (options.count ?? 1); index++)
+  for (let index = 0; index < (options.count ?? 1); index++) {
+    if (index > 0) await revalidate();
+    const body = { ...definition.body, ...options };
+    delete body.count;
+    if (value === "batchBookBatchUpgrade") {
+      body.isArtifact = options.bookType === "fish";
+      body.isSkin = options.bookType === "skin";
+      if (body.isArtifact || body.isSkin) body.club = 0;
+      delete body.bookType;
+    }
+    if (
+      ["extendedCelebratePersonal", "extendedCelebrateServer"].includes(value)
+    ) {
+      body.idList = [options.id];
+      delete body.id;
+    }
+    if (value === "batchClaimBoxWeeklyRewards") {
+      body.selectRewardsMap = { [String(options.itemId)]: 1 };
+      delete body.itemId;
+    }
     await send(definition.command, body);
+  }
   if (value === "batchBookBatchUpgrade")
     await send("book_claimpointreward", {});
 }

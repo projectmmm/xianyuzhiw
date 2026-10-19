@@ -38,6 +38,15 @@ test("invalid extension parameters cannot dispatch any command", async () => {
         () => normalizeExtendedTaskSettings(task.value),
         /按道具名称选择/,
       );
+    else if (
+      task.fields.some(
+        (field) => field.type === "gameSelection" && field.default === null,
+      )
+    )
+      assert.throws(
+        () => normalizeExtendedTaskSettings(task.value),
+        /按名称选择/,
+      );
     else assert.ok(normalizeExtendedTaskSettings(task.value));
   }
 });
@@ -158,6 +167,13 @@ test("cars skip travelling vehicles and never pay for a second refresh", async (
     { minColor: 5, refreshLimit: 10 },
     {
       now: () => 10000000,
+      loadChoices: async () => ({
+        fields: {
+          helperId: [
+            { value: 0, name: "不指定协助角色", settings: { helperId: 0 } },
+          ],
+        },
+      }),
       async send(command, body) {
         if (command === "car_getrolecar")
           return { roleCar: { carDataMap: clone(cars) } };

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { extendedTaskCatalog } from "../src/utils/batch/extendedTaskCatalog.js";
+import { selectionReadCommands } from "../src/utils/gameSelections.js";
 import { loadModule } from "./helpers/loadModule.js";
 
 /** Load either real client with deterministic timers and no network access. */
@@ -27,6 +28,7 @@ async function createClient(file, exportName) {
   };
   const dependencies = {
     "./batch/extendedTaskCatalog.js": { extendedTaskCatalog },
+    "./gameSelections.js": { selectionReadCommands },
     "@/stores/cache": {
       $CacheManager: {
         getCache() {

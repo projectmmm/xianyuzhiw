@@ -5,7 +5,7 @@ const bodyOf = (response) => response?.body ?? response;
 const activityOf = (response) => bodyOf(response)?.activity ?? bodyOf(response);
 const countOf = (value) => (value === true ? 1 : Number(value ?? 0));
 
-function makeTranslations(language) {
+export function makeTranslations(language) {
   const result = new Map();
   for (const group of Object.values(language.LanguageConf ?? {})) {
     for (const row of Object.values(group ?? {})) {
@@ -162,12 +162,8 @@ export function buildActivityGoods(
   );
 }
 
-/** Only public official configuration is downloaded; credentials stay in the game transport. */
-export async function loadActivityGoods(
-  send,
-  kind = "shop",
-  { fetchImpl = fetch, now = Date.now } = {},
-) {
+/** Public official configuration only; account data is never cached here. */
+export async function loadOfficialGameConfig(send, { fetchImpl = fetch } = {}) {
   const versionResponse = bodyOf(await send("system_getdatabundlever", {}));
   const version = versionResponse?.dataBundleVer;
   if (typeof version !== "string" || !/^[\w-]{1,80}$/.test(version))
@@ -194,7 +190,17 @@ export async function loadActivityGoods(
     cachedConfigs.set(version, loading);
     loading.catch(() => cachedConfigs.delete(version));
   }
-  const { config, language } = await cachedConfigs.get(version);
+  return cachedConfigs.get(version);
+}
+
+export async function loadActivityGoods(
+  send,
+  kind = "shop",
+  { fetchImpl = fetch, now = Date.now } = {},
+) {
+  const { config, language } = await loadOfficialGameConfig(send, {
+    fetchImpl,
+  });
   // Never cache account-specific activity records, stock or balances.
   const activity = await send("activity_get", {});
   const response = bodyOf(await send("role_getroleinfo", {}));

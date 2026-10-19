@@ -1,5 +1,6 @@
 import { runWithDailyTaskLock } from "../dailyTaskState.js";
 import { loadActivityGoods } from "../gameActivityGoods.js";
+import { loadExtendedChoices } from "../gameSelections.js";
 import { runExtendedGameOperation } from "./extendedGameOperations.js";
 import {
   extendedTaskCatalog,
@@ -14,7 +15,7 @@ export function createExtendedGoodsLoader(deps) {
   return async (kind) => {
     if (deps.isRunning.value) throw new Error("请等待当前任务完成");
     const tokenId = deps.selectedTokens.value[0];
-    if (!tokenId) throw new Error("请先勾选一个角色读取商品");
+    if (!tokenId) throw new Error("请先勾选一个角色读取游戏数据");
     deps.isRunning.value = true;
     deps.shouldStop.value = false;
     let ownsSlot = false;
@@ -29,9 +30,9 @@ export function createExtendedGoodsLoader(deps) {
           connectionOptions,
         );
         const send = (command, body) => {
-          if (deps.shouldStop.value) throw new Error("商品读取已停止");
+          if (deps.shouldStop.value) throw new Error("游戏数据读取已停止");
           if (deps.tokenStore.getWebSocketStatus(tokenId) !== "connected")
-            throw new Error("连接已断开，请重新读取商品");
+            throw new Error("连接已断开，请重新读取游戏数据");
           return deps.tokenStore.sendMessageWithPromise(
             tokenId,
             command,
@@ -39,7 +40,9 @@ export function createExtendedGoodsLoader(deps) {
             15000,
           );
         };
-        return loadActivityGoods(send, kind);
+        return typeof kind === "object"
+          ? loadExtendedChoices(send, kind.task)
+          : loadActivityGoods(send, kind);
       });
     } finally {
       if (ownsSlot) {

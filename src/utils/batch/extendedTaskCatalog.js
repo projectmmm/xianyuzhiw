@@ -14,11 +14,16 @@ const choice = (key, label, options, defaultValue = options[0].value) => ({
   default: defaultValue,
 });
 const count = () => number("count", "最多执行次数", 1, 100);
-const item = () => number("itemId", "道具 ID", 3007, 999999);
-const activity = () => number("activityId", "活动 ID", 0, 999999999, 0);
-const goods = () => number("goodsIndex", "商品序号", 0, 9999, 0);
-const shop = (key = "id") => number(key, "商品 ID", 1, 999999);
-const id = (key = "id", label = "奖励 ID") => number(key, label, 1, 999999999);
+const selection = (key, label, source, defaultValue = null) => ({
+  key,
+  label,
+  source,
+  type: "gameSelection",
+  default: defaultValue,
+});
+const item = () => selection("itemId", "背包道具", "packs");
+const id = (key = "id", label = "奖励") => selection(key, label, "reward");
+const formation = () => selection("formation", "出战阵容", "formations", 0);
 const gameGoods = (source) => ({
   key: "goodsId",
   label: "商品",
@@ -45,17 +50,16 @@ export const extendedTaskCatalog = [
       { label: "吴", value: 3 },
       { label: "群", value: 4 },
     ]),
-    number("formation", "阵容槽（0 当前）", 0, 6, 0),
+    formation(),
     count(),
   ]),
   task("batchDeepSeaChallenge", "深海挑战", "道具与养成", null, [
-    number("formation", "阵容槽（0 当前）", 0, 6, 0),
+    formation(),
     count(),
   ]),
   task("batch_star_challenge", "十殿星级挑战", "十殿", null, [
-    id("bossId", "首领 ID"),
-    number("formation", "阵容槽（0 当前）", 0, 6, 0),
-    number("presetTeamType", "预设类型", 4, 9),
+    selection("bossId", "首领", "starBoss"),
+    formation(),
   ]),
   task(
     "skinTreasure",
@@ -67,7 +71,7 @@ export const extendedTaskCatalog = [
   ),
   task("claim_guess_coin", "领取助威币", "日常与奖励", null),
   task("batchSaltRoadCheer", "天宫助威", "俱乐部与商店", "saltroad_outcheer", [
-    id("legionId", "助威俱乐部 ID"),
+    selection("legionId", "助威俱乐部", "cheerLegions"),
   ]),
   task("extendedFilmTasks", "胶卷任务奖励", "活动", null),
   task("filmClaim", "胶卷出片领奖", "活动", null),
@@ -103,7 +107,7 @@ export const extendedTaskCatalog = [
   task("batchNightmareChallengePresets", "十殿组队挑战", "十殿", null, [
     number("minutes", "最长运行分钟", 30, 120),
     number("maxLevel", "挑战至第几殿", 8, 8),
-    number("formation", "阵容槽（0 使用当前）", 0, 6, 0),
+    formation(),
     choice("autoRestore", "自动恢复", [
       { label: "关闭", value: false },
       { label: "开启", value: true },
@@ -129,7 +133,7 @@ export const extendedTaskCatalog = [
     "领取竞技大厅道具",
     "日常与奖励",
     "apex_taskclaim",
-    [id("confId")],
+    [id("confId", "竞技大厅任务奖励")],
   ),
   task("batchApexGuessClaim", "逐鹿竞猜领奖", "日常与奖励", null),
   task(
@@ -200,15 +204,15 @@ export const extendedTaskCatalog = [
     "鱼灵升星",
     "道具与养成",
     "artifact_upgradestar",
-    [item(), count()],
+    [selection("itemId", "鱼灵", "artifacts"), count()],
     { heroId: -1 },
   ),
   task("extendedFourSaintOrder", "四圣升级", "道具与养成", "hb_upgradeorder", [
-    number("heroId", "英雄 ID", 107, 9999),
+    selection("heroId", "四圣武将", "holyBeasts"),
     count(),
   ]),
   task("extendedFourSaintQuench", "四圣洗练", "道具与养成", "hb_quench", [
-    number("heroId", "英雄 ID", 107, 9999),
+    selection("heroId", "四圣武将", "holyBeasts"),
     count(),
   ]),
   task(
@@ -216,11 +220,7 @@ export const extendedTaskCatalog = [
     "橱窗咸将激活",
     "道具与养成",
     "collection_activate",
-    [
-      number("poolType", "卡池类型", 1, 99),
-      id("id", "咸将 ID"),
-      number("seriesId", "系列 ID", 1, 999),
-    ],
+    [selection("target", "可激活藏品", "collection")],
     { isAll: false },
   ),
   task(
@@ -255,16 +255,10 @@ export const extendedTaskCatalog = [
     number("recruitThreshold", "招募令下限（0 不限）", 0, 9999, 0),
     number("jadeThreshold", "白玉下限（0 不限）", 0, 999999, 0),
     number("ticketThreshold", "刷新券下限（0 不限）", 0, 9999, 0),
-    number(
-      "helperId",
-      "协助角色 ID（0 不指定）",
-      0,
-      Number.MAX_SAFE_INTEGER,
-      0,
-    ),
+    selection("helperId", "协助角色", "carHelpers", 0),
   ]),
   task("batchCarResearchUpgrade", "车队升级改装", "车队", "car_research", [
-    number("researchId", "改装项目", 1, 99),
+    selection("researchId", "改装项目", "carResearch"),
     count(),
   ]),
   task(
@@ -347,14 +341,14 @@ export const extendedTaskCatalog = [
     "助威商店购买",
     "俱乐部与商店",
     "legion_storebuygoods",
-    [shop(), count()],
+    [selection("id", "助威商店商品", "legionGoods"), count()],
   ),
   task(
     "collection_exchange",
     "珍宝阁兑换",
     "俱乐部与商店",
     "collection_exchange",
-    [shop("goodsId"), count()],
+    [selection("goodsId", "珍宝阁商品", "collectionGoods"), count()],
     { goodsNum: 1 },
   ),
   task(
@@ -362,7 +356,10 @@ export const extendedTaskCatalog = [
     "黑市周购买",
     "俱乐部与商店",
     "activity_buystoregoods",
-    [goods(), number("buyNum", "购买数量", 1, 100)],
+    [
+      selection("goodsIndex", "黑市周商品", "weeklyGoods"),
+      number("buyNum", "购买数量", 1, 100),
+    ],
     { activityId: 9 },
   ),
   task(
@@ -419,7 +416,7 @@ export const extendedTaskCatalog = [
     "怪异塔俱乐部任务领奖",
     "活动",
     "evotower_claimlegiontask",
-    [id("taskId")],
+    [id("taskId", "俱乐部目标奖励")],
   ),
   task(
     "extendedWeirdPrivilege",
@@ -432,7 +429,7 @@ export const extendedTaskCatalog = [
     "宝箱周自选大奖",
     "活动",
     "activity_claimweekactreward",
-    [item()],
+    [selection("itemId", "自选大奖", "weeklyRewards")],
     { typ: 2 },
   ),
   task(
@@ -440,14 +437,14 @@ export const extendedTaskCatalog = [
     "领取活动任务",
     "活动",
     "activity_claimtaskreward",
-    [activity(), id("missionId")],
+    [selection("target", "活动任务与奖励", "activityTasks")],
   ),
   task(
     "extendedActivityMilestone",
     "领取活动阶段奖励",
     "活动",
     "activity_claimmilestone",
-    [activity()],
+    [selection("activityId", "当前活动", "milestones")],
   ),
   task("batchActivityExchange", "消耗活动兑换", "活动", "activity_exchange", [
     gameGoods("exchange"),
@@ -465,7 +462,7 @@ export const extendedTaskCatalog = [
     "领取扭蛋阶段奖励",
     "活动",
     "gacha_claimstagereward",
-    [id("stageId")],
+    [id("stageId", "扭蛋累计奖励")],
   ),
   task("extendedCelebrateSign", "周年庆签到", "活动", "celebrate_sign"),
   task("extendedCelebrateShare", "周年庆分享奖励", "活动", "celebrate_share", [
@@ -476,7 +473,7 @@ export const extendedTaskCatalog = [
     "活动累计奖励",
     "活动",
     "common_claimtotalreward",
-    [activity(), id("configId")],
+    [selection("target", "活动累计奖励", "totalRewards")],
   ),
 ];
 
@@ -489,6 +486,21 @@ export function normalizeExtendedTaskSettings(value, settings = {}) {
   if (!task) throw new Error("未知扩展功能");
   const result = {};
   for (const field of task.fields) {
+    if (field.type === "gameSelection") {
+      const selected = Object.hasOwn(settings ?? {}, field.key)
+        ? settings[field.key]
+        : field.default;
+      if (
+        (typeof selected !== "number" && typeof selected !== "string") ||
+        selected === "" ||
+        String(selected).length > 120 ||
+        (typeof selected === "number" &&
+          (!Number.isSafeInteger(selected) || selected < 0))
+      )
+        throw new Error(`请先读取游戏数据，并按名称选择${field.label}`);
+      result[field.key] = selected;
+      continue;
+    }
     if (field.type === "gameGoods") {
       const selected = Number(settings?.[field.key]);
       if (

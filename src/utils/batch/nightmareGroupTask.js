@@ -1,4 +1,5 @@
 import { runWithDailyTaskLock } from "../dailyTaskState.js";
+import { getBattlePreset } from "./extendedFeatureHelpers.js";
 
 export async function runNightmareGroupTask(deps, options) {
   const {
@@ -79,10 +80,15 @@ export async function runNightmareGroupTask(deps, options) {
         check();
         if (!tokens.value.some((token) => token.id === id))
           throw new Error("所选角色已不存在");
-        await ensureConnection(id, 2, (owns) => {
-          if (owns) owned.add(id);
-          else owned.delete(id);
-        });
+        await ensureConnection(
+          id,
+          2,
+          (owns) => {
+            if (owns) owned.add(id);
+            else owned.delete(id);
+          },
+          { initializeBattle: false, requireRoleInfo: true },
+        );
         // Refuse to alter a team that this operation did not create.
         const existing = await send(id, "matchteam_getroleteaminfo", {});
         const teamId =
@@ -99,8 +105,13 @@ export async function runNightmareGroupTask(deps, options) {
         )
           throw new Error("同一游戏角色不能重复加入队伍");
         roleIds.set(id, roleId);
-        if (options.formation)
+        if (options.formation) {
+          getBattlePreset(
+            await send(id, "presetteam_getinfo", {}),
+            options.formation,
+          );
           await send(id, "presetteam_saveteam", { teamId: options.formation });
+        }
         tokenStatus.value[id] = "running";
       }
       currentRunningTokenId.value = captain;

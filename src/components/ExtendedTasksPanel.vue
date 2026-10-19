@@ -22,15 +22,15 @@
           :label="field.label"
         >
           <n-select
-            v-if="field.type === 'gameGoods'"
-            :value="selectedGoods?.goodsId ?? null"
-            :options="goodsOptions"
+            v-if="['gameGoods', 'gameSelection'].includes(field.type)"
+            :value="selectedOption(field.key)?.value ?? null"
+            :options="choices[field.key] || []"
             :render-label="renderGoodsLabel"
             :virtual-scroll="false"
             :loading="loadingGoods"
             :disabled="busy || loadingGoods"
             filterable
-            placeholder="按道具名称选择商品"
+            :placeholder="`读取游戏后，按名称选择${field.label}`"
             @update:value="(value) => update(field.key, value)"
           />
           <n-input-number
@@ -57,28 +57,31 @@
           />
         </n-form-item>
       </n-form>
-      <template v-if="goodsField">
+      <template v-if="dynamicFields.length">
         <n-button
           :loading="loadingGoods"
           :disabled="busy || !selectedCount || loadingGoods"
           @click="refreshGoods"
-          >读取 / 刷新游戏商品</n-button
+          >读取 / 刷新游戏数据</n-button
         >
         <n-text depth="3"
-          >商品列表来自第一个勾选角色；执行时会逐个角色重新核验活动、余额和限购。充值商品仅展示，请在游戏内购买。</n-text
+          >列表来自第一个勾选角色及官方游戏配置；执行时逐个角色重新核验。活动、系列等关联参数自动带入。充值商品请在游戏内购买。</n-text
         >
         <n-alert v-if="goodsError" type="warning">{{ goodsError }}</n-alert>
-        <n-alert v-else-if="goodsLoaded && !goods.length" type="info"
-          >该角色当前没有开放的活动商品。</n-alert
-        >
-        <n-alert v-if="selectedGoods" type="info"
-          >{{ selectedGoods.name }} · 单价 {{ selectedGoods.priceText }} ·
-          {{
-            selectedGoods.remaining == null
-              ? "不限购"
-              : `剩余 ${selectedGoods.remaining} 次`
-          }}</n-alert
-        >
+        <n-alert v-if="dataNotice" type="info">{{ dataNotice }}</n-alert>
+        <template v-for="field in dynamicFields" :key="field.key">
+          <n-alert
+            v-if="goodsLoaded && !choices[field.key]?.length"
+            type="info"
+          >
+            暂无可选择的{{
+              field.label
+            }}：可能尚未开放、没有持有，或游戏未返回可识别的名称配置。可刷新数据后重试。
+          </n-alert>
+          <n-alert v-if="selectedOption(field.key)" type="info">{{
+            selectedOption(field.key).label
+          }}</n-alert>
+        </template>
       </template>
       <n-text v-if="validationError" type="warning">{{
         validationError
@@ -101,7 +104,7 @@
             !selectedCount ||
             !definition ||
             !!validationError ||
-            (!!goodsField && (!selectedGoods || selectedGoods.disabled))
+            !selectionsReady
           "
           @click="$emit('run', selectedTask)"
           >执行所选功能</n-button
@@ -150,23 +153,32 @@ const definition = computed(() =>
 );
 const draft = ref({});
 const showEnhancements = ref(false);
-const goods = ref([]);
+const choices = ref({});
 const goodsLoaded = ref(false);
 const goodsError = ref("");
+const dataNotice = ref("");
 const loadingGoods = ref(false);
 let goodsRequest = 0;
+const dynamicFields = computed(
+  () =>
+    definition.value?.fields.filter((field) =>
+      ["gameGoods", "gameSelection"].includes(field.type),
+    ) ?? [],
+);
 const goodsField = computed(() =>
-  definition.value?.fields.find((field) => field.type === "gameGoods"),
+  dynamicFields.value.find((field) => field.type === "gameGoods"),
 );
-const selectedGoods = computed(() =>
-  goods.value.find((item) => item.goodsId === draft.value.goodsId),
-);
-const goodsOptions = computed(() =>
-  goods.value.map((item) => ({
-    label: item.label,
-    value: item.goodsId,
-    disabled: item.disabled,
-  })),
+const selectedOption = (key) =>
+  choices.value[key]?.find((item) => item.value === draft.value[key]);
+const selectionsReady = computed(
+  () =>
+    !dynamicFields.value.length ||
+    (goodsLoaded.value &&
+      !goodsError.value &&
+      dynamicFields.value.every((field) => {
+        const selected = selectedOption(field.key);
+        return selected && !selected.disabled;
+      })),
 );
 const renderGoodsLabel = (option) =>
   h(
@@ -190,28 +202,42 @@ const validationError = computed(() => {
   }
 });
 async function refreshGoods() {
-  if (!goodsField.value || !props.loadGoods || props.busy || loadingGoods.value)
+  if (
+    !dynamicFields.value.length ||
+    !props.loadGoods ||
+    props.busy ||
+    loadingGoods.value
+  )
     return;
   const request = ++goodsRequest;
-  const source = goodsField.value.source;
+  const source = goodsField.value?.source;
+  const task = selectedTask.value;
   loadingGoods.value = true;
   goodsError.value = "";
+  dataNotice.value = "";
   goodsLoaded.value = false;
-  goods.value = [];
+  choices.value = {};
   try {
-    const result = await props.loadGoods(source);
+    const result = await props.loadGoods(source ?? { task });
     if (request !== goodsRequest) return;
-    goods.value = result;
+    choices.value = source
+      ? { goodsId: result.map((item) => ({ ...item, value: item.goodsId })) }
+      : result.fields;
+    dataNotice.value = result.notice || "";
     goodsLoaded.value = true;
-    if (
-      !result.some(
-        (item) => item.goodsId === draft.value.goodsId && !item.disabled,
+    const next = { ...draft.value };
+    for (const field of dynamicFields.value) {
+      if (
+        !choices.value[field.key]?.some(
+          (item) => item.value === next[field.key] && !item.disabled,
+        )
       )
-    )
-      update("goodsId", null);
+        next[field.key] = null;
+    }
+    save(next);
   } catch (error) {
     if (request === goodsRequest)
-      goodsError.value = error.message || "读取商品失败，请重试";
+      goodsError.value = error.message || "读取游戏数据失败，请重试";
   } finally {
     if (request === goodsRequest) loadingGoods.value = false;
   }
@@ -225,27 +251,37 @@ watch(
     draft.value = Object.fromEntries(
       (definition.value?.fields || []).map((field) => [
         field.key,
-        props.settings[selectedTask.value]?.[field.key] ?? field.default,
+        Object.hasOwn(props.settings[selectedTask.value] ?? {}, field.key)
+          ? props.settings[selectedTask.value][field.key]
+          : field.default,
       ]),
     );
   },
   { immediate: true },
 );
-watch([selectedTask, () => props.accountKey], () => {
-  goodsRequest++;
-  goods.value = [];
-  goodsLoaded.value = false;
-  goodsError.value = "";
-  loadingGoods.value = false;
-  if (goodsField.value && props.selectedCount && !props.busy)
-    void refreshGoods();
-});
-function update(key, value) {
-  draft.value = { ...draft.value, [key]: value };
+watch(
+  [selectedTask, () => props.accountKey],
+  () => {
+    goodsRequest++;
+    choices.value = {};
+    goodsLoaded.value = false;
+    goodsError.value = "";
+    dataNotice.value = "";
+    loadingGoods.value = false;
+    if (dynamicFields.value.length && props.selectedCount && !props.busy)
+      void refreshGoods();
+  },
+  { immediate: true },
+);
+function save(next) {
+  draft.value = next;
   emit("update:settings", {
     ...props.settings,
-    [selectedTask.value]: { ...draft.value },
+    [selectedTask.value]: { ...next },
   });
+}
+function update(key, value) {
+  save({ ...draft.value, [key]: value });
 }
 </script>
 <style scoped>

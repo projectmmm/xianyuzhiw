@@ -1,12 +1,13 @@
 import { $CacheManager } from "@/stores/cache";
+import { extendedTaskCatalog } from "./batch/extendedTaskCatalog.js";
 
 /**
  * XYZW WebSocket 客户端
  * 基于 readable-xyzw-ws.js 重构，适配本项目架构
  */
 
-import { extendedTaskCatalog } from "./batch/extendedTaskCatalog.js";
 import { g_utils } from "./bonProtocol.js";
+import { selectionReadCommands } from "./gameSelections.js";
 import { sleep } from "./helperTaskRunner.js";
 import { gameLogger, wsLogger } from "./logger.js";
 
@@ -147,6 +148,7 @@ export class CommandRegistry {
 /** 预注册游戏命令 */
 export const extendedGameCommands = [
   ...new Set([
+    ...selectionReadCommands,
     ...extendedTaskCatalog.map((task) => task.command).filter(Boolean),
     "matchteam_create",
     "matchteam_join",
